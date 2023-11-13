@@ -17,9 +17,9 @@ class Settings(BaseSettings):
             case "Windows":
                 return "127.0.0.1:9001"
             case "Linux":
-                return Path("")
+                return Path("")  # FIXME: fill this
             case "Darwin":
-                return Path("")
+                return Path("")  # FIXME: and this
 
         raise Exception("No control path")
 
