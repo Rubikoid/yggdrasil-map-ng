@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "ygg-map"
+version = "0.0.1"
+description = "Map for yggdrasil"
+authors = ["Rubikoid <rubikoid@rubikoid.ru>"]
+readme = "README.md"
+packages = [{include = "ygg_map"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.4.2"
+pydantic-settings = "^2.0.3"
+fastapi = "^0.104.1"
+loguru = "^0.7.2"
+devtools = "^0.12.2"
+uvicorn = "^0.24.0.post1"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.11.0"
+ruff = "^0.1.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
