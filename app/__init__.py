@@ -1,11 +1,32 @@
+from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from loguru import logger
 
-from .crawler import MODE, crawl
+from .crawler import MODE, crawler, Export
+from .utils import repeat_every
 
-app = FastAPI()
+
+@asynccontextmanager
+async def init(ap: FastAPI):
+    async with crawler:
+        try:
+            yield
+        except Exception as ex:
+            logger.warning(f"Shutdown exception: {ex}")
+            # raise # ??
+
+
+app = FastAPI(lifespan=init)
+
+
+@app.on_event("startup")
+@repeat_every(seconds=60 * 2)  # every two minutes
+async def refresh_map():
+    logger.info("Refreshing map")
+    await crawler.refresh()
 
 
 base_resp = """
@@ -60,7 +81,15 @@ base_resp = """
 
 @app.get("/")
 async def index(mode: MODE = "path") -> HTMLResponse:
-    data = await crawl(mode)
+    data = crawler.export(mode).model_dump_json(by_alias=True)
+
     resp = base_resp.replace("{data}", data)
 
     return HTMLResponse(content=resp)
+
+
+@app.get("/refresh")
+async def refresh(mode: MODE = "path") -> Export:
+    await crawler.refresh()
+
+    return crawler.export(mode)
