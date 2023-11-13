@@ -1,9 +1,10 @@
 from typing import Literal
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 
 from .crawler import MODE, crawl
+from loguru import logger
 
 app = FastAPI()
 
@@ -61,6 +62,44 @@ base_resp = """
 @app.get("/")
 async def index(mode: MODE = "path") -> HTMLResponse:
     data = await crawl(mode)
+    logger.trace(data)
     resp = base_resp.replace("{data}", data)
 
     return HTMLResponse(content=resp)
+
+
+import json
+import graphviz
+import io
+
+
+@app.get("/graphviz")
+async def get_graphviz():
+    graph = graphviz.Digraph(
+        format="png",
+    )
+    peers = json.loads(await crawl("peers"))
+    graph.attr("edge", dir="both")
+
+    for node in peers["nodes"]:
+        node_shape = "ellipse"
+        node_color = "black"
+        bp = node["buildplatform"]
+        if bp == "windows":
+            node_shape = "box"
+            node_color = "red"
+        if bp == "darwin":
+            node_shape = "diamond"
+            node_color = "green"
+        if bp == "linux":
+            node_shape = "cylinder"
+            node_color = "blue"
+        graph.attr("node", shape=node_shape, color=node_color)
+        graph.node(str(node["id"]), f"{node['buildversion']} {node['label']}")
+
+    for edge in peers["edges"]:
+        graph.edge(str(edge["to"]), str(edge["from"]))
+
+    return StreamingResponse(
+        io.BytesIO(graph.pipe(format="png")), media_type="image/png"
+    )

@@ -68,6 +68,8 @@ class Export(BaseModel):
     class Node(BaseModel):
         id: NodeId
         label: str
+        buildplatform: str = UNK
+        buildversion: str = UNK
 
     class Edge(BaseModel):
         from_: NodeId = Field(serialization_alias="from")
@@ -180,7 +182,9 @@ class Context:
         lookups = await self.ygg.lookups()
 
         for lookup in lookups.infos:
-            node_info = self.peers[lookup.key]
+            node_info = self.peers.get(lookup.key)
+            if not node_info:
+                continue
 
             node = EnrichedPeerData.model_validate(lookup.model_dump() | node_info.model_dump())
             self.enriched_peers[node.key] = node
@@ -220,18 +224,25 @@ class Context:
             case "peers":
                 for root_key, children in self.peers_connections.items():
                     for child in children:
-                        ret.edges.append(
-                            Export.Edge(
-                                from_=get_id(child),
-                                to=get_id(root_key),
-                            )
+                        edge = Export.Edge(
+                            from_=get_id(child),
+                            to=get_id(root_key),
                         )
+                        antiedge = Export.Edge(
+                            to=get_id(child),
+                            from_=get_id(root_key),
+                        )
+                        
+                        if antiedge not in ret.edges:
+                            ret.edges.append(edge)
 
         for node in nodes.values():
             ret.nodes.append(
                 Export.Node(
                     id=get_id(node.key),
                     label=node.label,
+                    buildplatform=node.buildplatform,
+                    buildversion=node.buildversion,
                 )
             )
 
