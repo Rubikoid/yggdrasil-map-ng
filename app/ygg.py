@@ -5,6 +5,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Annotated, AsyncContextManager, Generic, Literal, NewType, TypeVar
 
+import pydantic_core
 from annotated_types import Len
 from loguru import logger
 from pydantic import BaseModel, Field, RootModel, TypeAdapter
@@ -27,11 +28,15 @@ T = TypeVar("T")  # , bound=BaseResponse | RootModel
 #     pass
 
 
-class BaseException(Exception):
+class YggdrasilError(Exception):
     pass
 
 
-class RequestException(Exception):
+class RequestError(YggdrasilError):
+    pass
+
+
+class ValidationError(YggdrasilError):
     pass
 
 
@@ -102,7 +107,8 @@ class GetNodeInfoResponse(BaseResponse):
     buildname: str
     buildplatform: str
     buildversion: str
-    name: str
+
+    name: str = ""
 
 
 class RemoteGetPeers(BaseResponse):
@@ -170,8 +176,8 @@ class BaseYggdrasil(AsyncContextManager):
 
     async def __aexit__(
         self,
-        __exc_type: type[BaseException] | None,
-        __exc_value: BaseException | None,
+        __exc_type: type[YggdrasilError] | None,
+        __exc_value: YggdrasilError | None,
         __traceback: TracebackType | None,
     ) -> bool | None:
         self._connected = False
@@ -197,9 +203,13 @@ class BaseYggdrasil(AsyncContextManager):
         if not req.response_model:
             raise Exception
 
-        parsed = TypeAdapter(SuccessResponse[req.response_model] | ErrorResponse).validate_json(resp)
-        if parsed.status == Response.Status.error:
-            raise RequestException(parsed)
+        try:
+            parsed = TypeAdapter(SuccessResponse[req.response_model] | ErrorResponse).validate_json(resp)
+            if parsed.status == Response.Status.error:
+                raise RequestError(parsed)
+        except pydantic_core.ValidationError as ex:
+            logger.info(f"Validation error: {req} -> {resp.decode()}")
+            raise ValidationError(req) from ex
 
         logger.trace(f"{parsed}")
         return parsed

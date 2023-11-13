@@ -4,7 +4,7 @@ from devtools import debug
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from .ygg import Addr, EmptyKey, Key, RequestException, Yggdrasil, GetSelfResponse
+from .ygg import Addr, EmptyKey, Key, RequestError, Yggdrasil, GetSelfResponse
 
 UNK = "unknown"
 
@@ -135,7 +135,7 @@ class Context:
             _, raw_remote_trees = (await self.ygg.remote_get_tree(key)).popitem()
             remote_peers = raw_remote_peers.keys
             remote_trees = raw_remote_trees.keys
-        except RequestException as ex:
+        except RequestError as ex:
             logger.warning(f"{key} -> {ex!r}")
 
             remote_peers = []
@@ -153,7 +153,9 @@ class Context:
             peer_info = (await self.ygg.remote_get_info(key))[key].model_dump()
             peer_info["key"] = key
             peer_data = PeerData.model_validate(peer_info)
-        except RequestException as ex:
+        except RequestError as ex:
+            logger.warning(f"{key} -> {ex!r}")
+
             peer_data = PeerData(
                 key=key,
                 name=UNK,
