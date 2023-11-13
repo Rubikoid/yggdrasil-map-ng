@@ -1,6 +1,9 @@
+from typing import Literal
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-from .crawler import crawl
+
+from .crawler import MODE, crawl
 
 app = FastAPI()
 
@@ -56,8 +59,8 @@ base_resp = """
 
 
 @app.get("/")
-async def index() -> HTMLResponse:
-    data = await crawl()
+async def index(mode: MODE = "path") -> HTMLResponse:
+    data = await crawl(mode)
     resp = base_resp.replace("{data}", data)
 
     return HTMLResponse(content=resp)

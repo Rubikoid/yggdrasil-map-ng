@@ -1,4 +1,4 @@
-from typing import NewType
+from typing import Literal, NewType, Self, TypeAlias
 
 from devtools import debug
 from loguru import logger
@@ -9,6 +9,7 @@ from .ygg import Addr, EmptyKey, Key, RequestException, Yggdrasil, GetSelfRespon
 UNK = "unknown"
 
 NodeId = NewType("NodeId", int)
+MODE: TypeAlias = Literal["path"] | Literal["peers"]
 
 
 def get_id(key: Key) -> NodeId:
@@ -26,33 +27,41 @@ class PeerData(BaseModel):
     buildarch: str
     buildplatform: str
 
-    @property
-    def id(self) -> NodeId:
-        return get_id(self.key)
 
-
-class XNodeInfo(BaseModel):
-    ip: Addr
+class EnrichedPeerData(PeerData):
+    addr: Addr
     key: Key | EmptyKey
-
-    name: str
 
     path: list[int]
 
     @property
     def label(self) -> str:
-        return f"{self.name} - {self.ip[:8]}"
+        return f"{self.name} - {self.addr[:8]}"
 
     @property
     def parent(self) -> list[int]:
         return self.path[:-1] if len(self.path) > 0 else []
 
     @property
-    def link(self) -> int:
-        if len(self.path) > 0:
-            return self.path[-1]
-        else:
-            return 0
+    def tpath(self) -> tuple[int, ...]:
+        return tuple(self.path)
+
+    @property
+    def id(self) -> int:
+        return get_id(self.key)
+
+    @classmethod
+    def empty(cls: type[Self], path: list[int]) -> Self:
+        return cls(
+            addr=Addr(""),
+            key=EmptyKey(""),
+            name="?",
+            path=path,
+            buildname="?",
+            buildversion="?",
+            buildarch="?",
+            buildplatform="?",
+        )
 
 
 class Export(BaseModel):
@@ -65,7 +74,7 @@ class Export(BaseModel):
         to: NodeId
 
         dashes: bool = False
-        # arrows: str = "to"
+        arrows: Literal["to"] | str | None = None
 
     nodes: list[Node] = []
     edges: list[Edge] = []
@@ -76,26 +85,36 @@ class Context:
 
     root_ygg: GetSelfResponse
 
-    peers: dict[Key, PeerData] = {}
+    peers: dict[Key, PeerData]
+    enriched_peers: dict[Key, EnrichedPeerData]
 
-    peers_connections: dict[Key, list[Key]] = {}
+    peers_connections: dict[Key, list[Key]]
     # trees_connections: dict[Key, list[Key]] = {}
 
     def __init__(self) -> None:
         self.peers = {}
-        # self.peers_connections = {}
+        self.enriched_peers = {}
+
+        self.peers_connections = {}
         # self.trees_connections = {}
 
     async def run(self):
         self.root_ygg = await self.ygg.get_self()
-        self.peers[self.root_ygg.key] = PeerData(
-            key=self.root_ygg.key,
-            name="idk, root",
-            buildname=self.root_ygg.build_name,
-            buildversion=self.root_ygg.build_version,
-            buildarch=UNK,
-            buildplatform=UNK,
-        )
+        try:
+            peer_info = (await self.ygg.remote_get_info(self.root_ygg.key))[self.root_ygg.key].model_dump()
+            peer_info["key"] = self.root_ygg.key
+            peer_data = PeerData.model_validate(peer_info)
+            self.peers[peer_data.key] = peer_data
+        except Exception as ex:
+            # FIXME: temporary?? solution b/c (only windows??) ygg client refuses to do remote_* with self key
+            self.peers[self.root_ygg.key] = PeerData(
+                key=self.root_ygg.key,
+                name="idk, root",
+                buildname=self.root_ygg.build_name,
+                buildversion=self.root_ygg.build_version,
+                buildarch=UNK,
+                buildplatform=UNK,
+            )
 
         root_peers = await self.ygg.get_peers()
         for peer in root_peers.peers:
@@ -118,7 +137,7 @@ class Context:
             remote_trees = raw_remote_trees.keys
         except RequestException as ex:
             logger.warning(f"{key} -> {ex!r}")
-            
+
             remote_peers = []
             remote_trees = []
 
@@ -143,50 +162,57 @@ class Context:
         #     if key not in peers and key not in not_found_keys:
         #         not_found_keys.append(key)
 
-    async def export(self) -> Export:
+    async def export(self, mode: MODE) -> Export:
         ret = Export()
         lookups = await self.ygg.lookups()
 
-        raw_nodes: list[XNodeInfo] = []
         for lookup in lookups.infos:
             node_info = self.peers[lookup.key]
 
-            node = XNodeInfo(
-                ip=Addr(lookup.addr),
-                key=lookup.key,
-                name=node_info.name,
-                path=lookup.path,
-            )
-            raw_nodes.append(node)
+            node = EnrichedPeerData.model_validate(lookup.model_dump() | node_info.model_dump())
+            self.enriched_peers[node.key] = node
 
-        nodes: dict[tuple[int, ...], XNodeInfo] = dict()
+        nodes: dict[tuple[int, ...], EnrichedPeerData] = dict()
 
-        def add_shit(info: XNodeInfo):
-            parent_coords = info.parent
+        for info in self.enriched_peers.values():
+            nodes[info.tpath] = info
 
-            parent = XNodeInfo(
-                ip=Addr(""),
-                key=EmptyKey(""),
-                name="?",
-                path=parent_coords,
-            )
+        match mode:
+            case "path":
+                # TODO: this is copypasted from old cringe graph gen.
+                # make it normal
+                def resolve_parents(info: EnrichedPeerData):
+                    parent_coords = info.parent
 
-            nodes[tuple(parent_coords)] = parent
-            if parent.path != parent.parent:
-                add_shit(parent)
+                    parent = EnrichedPeerData.empty(parent_coords)
 
-        for info in raw_nodes:
-            add_shit(info)
+                    if parent.tpath not in nodes:
+                        nodes[parent.tpath] = parent
 
-        for info in raw_nodes:
-            nodes[tuple(info.path)] = info
+                    if parent.path != parent.parent:
+                        resolve_parents(parent)
 
-        for node in nodes.values():
-            if node.parent == node.path:
-                continue
-            e = nodes[tuple(node.parent)]
-            to = get_id(e.key)
-            ret.edges.append(Export.Edge(from_=get_id(node.key), to=to))
+                for info in self.enriched_peers.values():
+                    resolve_parents(info)
+
+                for node in nodes.values():
+                    if node.parent == node.path:
+                        continue
+
+                    e = nodes[tuple(node.parent)]
+                    to = get_id(e.key)
+
+                    ret.edges.append(Export.Edge(from_=get_id(node.key), to=to))
+
+            case "peers":
+                for root_key, children in self.peers_connections.items():
+                    for child in children:
+                        ret.edges.append(
+                            Export.Edge(
+                                from_=get_id(child),
+                                to=get_id(root_key),
+                            )
+                        )
 
         for node in nodes.values():
             ret.nodes.append(
@@ -199,7 +225,7 @@ class Context:
         return ret
 
 
-async def crawl():
+async def crawl(mode: MODE):
     ygg = Yggdrasil()
 
     context = Context()
@@ -208,26 +234,4 @@ async def crawl():
     async with ygg:
         await context.run()
 
-        return (await context.export()).model_dump_json(by_alias=True)
-
-        # for peer in peers.values():
-        #     if peer.key == root_ygg.key:
-        #         continue
-
-        # for unk_key in not_found_keys:
-        #     try:
-        #         peer_info = (await ygg.remote_get_info(unk_key))[unk_key].model_dump()
-        #         peer_info["key"] = unk_key
-
-        #         peer_data = PeerData.model_validate(peer_info)
-        #         peers[peer_data.key] = peer_data
-
-        #     except RequestException:
-        #         peers[unk_key] = PeerData(
-        #             key=unk_key,
-        #             buildarch=UNK,
-        #             buildname=UNK,
-        #             buildplatform=UNK,
-        #             buildversion=UNK,
-        #             name=UNK,
-        #         )
+        return (await context.export(mode)).model_dump_json(by_alias=True)

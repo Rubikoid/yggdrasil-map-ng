@@ -3,7 +3,7 @@ from .crawler import crawl
 
 
 async def main():
-    res = await crawl()
+    res = await crawl("path")
     print(res)
 
 

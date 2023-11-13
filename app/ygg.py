@@ -12,9 +12,9 @@ from pydantic import BaseModel, Field, RootModel, TypeAdapter
 from .config import settings
 
 try:
-    from asyncio import open_unix_connection
+    from asyncio import open_unix_connection  # type: ignore
 except ImportError:
-    logger.warning(f"open_unix_connection unavailable")
+    logger.warning(f"open_unix_connection unavailable (it's okay, if you on windows)")
 
 _Key = NewType("Key", str)
 Key = Annotated[_Key, Len(min_length=64, max_length=64)]
