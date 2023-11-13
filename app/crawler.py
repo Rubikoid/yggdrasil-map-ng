@@ -72,7 +72,7 @@ class Export(BaseModel):
         to: NodeId
 
         dashes: bool = False
-        arrows: Literal["to"] | str | None = None
+        arrows: Literal["to"] | Literal["from"] | Literal["to;from"] | str | None = None
 
     nodes: list[Node] = []
     edges: list[Edge] = []
@@ -216,12 +216,16 @@ class Crawler(AsyncContextManager):
                             from_=get_id(child),
                             to=get_id(root_key),
                         )
+                        ret.edges.append(edge)
+
                         antiedge = Export.Edge(
                             to=get_id(child),
                             from_=get_id(root_key),
                         )
-
-                        if antiedge not in ret.edges:
+                        if edge in ret.edges and antiedge in ret.edges:
+                            ret.edges.remove(edge)
+                            ret.edges.remove(antiedge)
+                            edge.arrows = "to;from"
                             ret.edges.append(edge)
 
         for node in nodes.values():

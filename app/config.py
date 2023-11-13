@@ -17,7 +17,7 @@ class Settings(BaseSettings):
             case "Windows":
                 return "127.0.0.1:9001"
             case "Linux":
-                return Path("")  # FIXME: fill this
+                return Path("/var/run/yggdrasil.sock")
             case "Darwin":
                 return Path("")  # FIXME: and this
 

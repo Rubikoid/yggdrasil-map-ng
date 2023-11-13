@@ -126,7 +126,16 @@ async def get_graphviz(mode: MODE = "peers"):
         graph.node(str(node.id), f"{node.buildversion} {node.label}")
 
     for edge in peers.edges:
-        graph.edge(str(edge.to), str(edge.from_))
+        dir = None
+        color = None
+        match edge.arrows:
+            case None:
+                dir = "forward"
+                color = "red"
+            case "to;forward":
+                dir = "both"
+
+        graph.edge(str(edge.to), str(edge.from_), dir=dir, color=color)
 
     return StreamingResponse(BytesIO(graph.pipe(format="png")), media_type="image/png")
 
