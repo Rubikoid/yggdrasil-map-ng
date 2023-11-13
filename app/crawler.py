@@ -1,4 +1,5 @@
-from typing import Literal, NewType, Self, TypeAlias
+from types import TracebackType
+from typing import AsyncContextManager, Literal, NewType, Self, TypeAlias
 
 from devtools import debug
 from loguru import logger
@@ -19,13 +20,13 @@ def get_id(key: Key) -> NodeId:
 class PeerData(BaseModel):
     key: Key
 
-    name: str
+    name: str = UNK
 
-    buildname: str
-    buildversion: str
+    buildname: str = UNK
+    buildversion: str = UNK
 
-    buildarch: str
-    buildplatform: str
+    buildarch: str = UNK
+    buildplatform: str = UNK
 
 
 class EnrichedPeerData(PeerData):
@@ -55,12 +56,7 @@ class EnrichedPeerData(PeerData):
         return cls(
             addr=Addr(""),
             key=EmptyKey(""),
-            name="?",
             path=path,
-            buildname="?",
-            buildversion="?",
-            buildarch="?",
-            buildplatform="?",
         )
 
 
@@ -82,38 +78,41 @@ class Export(BaseModel):
     edges: list[Edge] = []
 
 
-class Context:
+class Crawler(AsyncContextManager):
     ygg: Yggdrasil
 
-    root_ygg: GetSelfResponse
+    self_info: GetSelfResponse
 
     peers: dict[Key, PeerData]
     enriched_peers: dict[Key, EnrichedPeerData]
 
     peers_connections: dict[Key, list[Key]]
-    # trees_connections: dict[Key, list[Key]] = {}
 
     def __init__(self) -> None:
+        self.ygg = Yggdrasil()
+
+    async def init(self) -> None:
+        self.self_info = await self.ygg.get_self()
+        await self.refresh()
+
+    async def refresh(self):
         self.peers = {}
         self.enriched_peers = {}
 
         self.peers_connections = {}
-        # self.trees_connections = {}
 
-    async def run(self):
-        self.root_ygg = await self.ygg.get_self()
         try:
-            peer_info = (await self.ygg.remote_get_info(self.root_ygg.key))[self.root_ygg.key].model_dump()
-            peer_info["key"] = self.root_ygg.key
+            peer_info = (await self.ygg.remote_get_info(self.self_info.key))[self.self_info.key].model_dump()
+            peer_info["key"] = self.self_info.key
             peer_data = PeerData.model_validate(peer_info)
             self.peers[peer_data.key] = peer_data
         except Exception as ex:
             # FIXME: temporary?? solution b/c (only windows??) ygg client refuses to do remote_* with self key
-            self.peers[self.root_ygg.key] = PeerData(
-                key=self.root_ygg.key,
+            self.peers[self.self_info.key] = PeerData(
+                key=self.self_info.key,
                 name="idk, root",
-                buildname=self.root_ygg.build_name,
-                buildversion=self.root_ygg.build_version,
+                buildname=self.self_info.build_name,
+                buildversion=self.self_info.build_version,
                 buildarch=UNK,
                 buildplatform=UNK,
             )
@@ -125,8 +124,19 @@ class Context:
 
             await self.fill(peer.key)
 
+        lookups = await self.ygg.lookups()
+        for lookup in lookups.infos:
+            node_info = self.peers.get(lookup.key, None)
+            if not node_info:
+                logger.warning(f"{lookup} not found in nodes cache, reloading")
+                await self.fill(lookup.key)
+                node_info = self.peers.get(lookup.key, PeerData(key=lookup.key))
+
+            node = EnrichedPeerData.model_validate(lookup.model_dump() | node_info.model_dump())
+            self.enriched_peers[node.key] = node
+
     async def fill(self, key: Key):
-        if key == self.root_ygg.key:
+        if key == self.self_info.key:
             return
 
         if key in self.peers:
@@ -158,37 +168,15 @@ class Context:
         except RequestError as ex:
             logger.warning(f"{key} -> {ex!r}")
 
-            peer_data = PeerData(
-                key=key,
-                name=UNK,
-                buildname=UNK,
-                buildversion=UNK,
-                buildarch=UNK,
-                buildplatform=UNK,
-            )
+            peer_data = PeerData(key=key)
 
         self.peers[peer_data.key] = peer_data
 
         for possible_key in remote_peers + remote_trees:
             await self.fill(possible_key)
 
-        # # todo: make it optimal with sets
-        # for key in remote_peers.keys + remote_trees.keys:
-        #     if key not in peers and key not in not_found_keys:
-        #         not_found_keys.append(key)
-
-    async def export(self, mode: MODE) -> Export:
+    def export(self, mode: MODE) -> Export:
         ret = Export()
-        lookups = await self.ygg.lookups()
-
-        for lookup in lookups.infos:
-            node_info = self.peers.get(lookup.key)
-            if not node_info:
-                continue
-
-            node = EnrichedPeerData.model_validate(lookup.model_dump() | node_info.model_dump())
-            self.enriched_peers[node.key] = node
-
         nodes: dict[tuple[int, ...], EnrichedPeerData] = dict()
 
         for info in self.enriched_peers.values():
@@ -232,7 +220,7 @@ class Context:
                             to=get_id(child),
                             from_=get_id(root_key),
                         )
-                        
+
                         if antiedge not in ret.edges:
                             ret.edges.append(edge)
 
@@ -248,14 +236,18 @@ class Context:
 
         return ret
 
+    async def __aenter__(self):
+        self.ygg = await self.ygg.__aenter__()
+        await self.init()
 
-async def crawl(mode: MODE):
-    ygg = Yggdrasil()
+    async def __aexit__(
+        self,
+        __exc_type: type[BaseException] | None,
+        __exc_value: BaseException | None,
+        __traceback: TracebackType | None,
+    ) -> bool | None:
+        await self.ygg.__aexit__(__exc_type, __exc_value, __traceback)
+        return None
 
-    context = Context()
-    context.ygg = ygg
 
-    async with ygg:
-        await context.run()
-
-        return (await context.export(mode)).model_dump_json(by_alias=True)
+crawler = Crawler()

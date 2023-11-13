@@ -1,12 +1,34 @@
+from contextlib import asynccontextmanager
+from io import BytesIO
 from typing import Literal
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
-
-from .crawler import MODE, crawl
+from graphviz import Digraph
 from loguru import logger
 
-app = FastAPI()
+from .crawler import MODE, Export, crawler
+from .utils import repeat_every
+
+
+@asynccontextmanager
+async def init(ap: FastAPI):
+    async with crawler:
+        try:
+            yield
+        except Exception as ex:
+            logger.warning(f"Shutdown exception: {ex}")
+            # raise # ??
+
+
+app = FastAPI(lifespan=init)
+
+
+@app.on_event("startup")
+@repeat_every(seconds=60 * 2)  # every two minutes
+async def refresh_map():
+    logger.info("Refreshing map")
+    await crawler.refresh()
 
 
 base_resp = """
@@ -61,30 +83,26 @@ base_resp = """
 
 @app.get("/")
 async def index(mode: MODE = "path") -> HTMLResponse:
-    data = await crawl(mode)
+    data = crawler.export(mode).model_dump_json(by_alias=True)
     logger.trace(data)
+
     resp = base_resp.replace("{data}", data)
 
     return HTMLResponse(content=resp)
 
 
-import json
-import graphviz
-import io
-
-
 @app.get("/graphviz")
-async def get_graphviz():
-    graph = graphviz.Digraph(
+async def get_graphviz(mode: MODE = "peers"):
+    graph = Digraph(
         format="png",
     )
-    peers = json.loads(await crawl("peers"))
+    peers = crawler.export(mode)  # json.loads(await crawl("peers"))
     graph.attr("edge", dir="both")
 
-    for node in peers["nodes"]:
+    for node in peers.nodes:
         node_shape = "ellipse"
         node_color = "black"
-        bp = node["buildplatform"]
+        bp = node.buildplatform
         if bp == "windows":
             node_shape = "box"
             node_color = "red"
@@ -95,11 +113,15 @@ async def get_graphviz():
             node_shape = "cylinder"
             node_color = "blue"
         graph.attr("node", shape=node_shape, color=node_color)
-        graph.node(str(node["id"]), f"{node['buildversion']} {node['label']}")
+        graph.node(str(node.id), f"{node.buildversion} {node.label}")
 
-    for edge in peers["edges"]:
-        graph.edge(str(edge["to"]), str(edge["from"]))
+    for edge in peers.edges:
+        graph.edge(str(edge.to), str(edge.from_))
 
-    return StreamingResponse(
-        io.BytesIO(graph.pipe(format="png")), media_type="image/png"
-    )
+    return StreamingResponse(BytesIO(graph.pipe(format="png")), media_type="image/png")
+
+
+@app.get("/refresh")
+async def refresh(mode: MODE = "path") -> Export:
+    await crawler.refresh()
+    return crawler.export(mode)
