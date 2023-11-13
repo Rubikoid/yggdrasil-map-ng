@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
+from io import BytesIO
 from typing import Literal
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
+from graphviz import Digraph
 from loguru import logger
 
-from .crawler import MODE, crawler, Export
+from .crawler import MODE, Export, crawler
 from .utils import repeat_every
 
 
@@ -82,14 +84,44 @@ base_resp = """
 @app.get("/")
 async def index(mode: MODE = "path") -> HTMLResponse:
     data = crawler.export(mode).model_dump_json(by_alias=True)
+    logger.trace(data)
 
     resp = base_resp.replace("{data}", data)
 
     return HTMLResponse(content=resp)
 
 
+@app.get("/graphviz")
+async def get_graphviz(mode: MODE = "peers"):
+    graph = Digraph(
+        format="png",
+    )
+    peers = crawler.export(mode)  # json.loads(await crawl("peers"))
+    graph.attr("edge", dir="both")
+
+    for node in peers.nodes:
+        node_shape = "ellipse"
+        node_color = "black"
+        bp = node.buildplatform
+        if bp == "windows":
+            node_shape = "box"
+            node_color = "red"
+        if bp == "darwin":
+            node_shape = "diamond"
+            node_color = "green"
+        if bp == "linux":
+            node_shape = "cylinder"
+            node_color = "blue"
+        graph.attr("node", shape=node_shape, color=node_color)
+        graph.node(str(node.id), f"{node.buildversion} {node.label}")
+
+    for edge in peers.edges:
+        graph.edge(str(edge.to), str(edge.from_))
+
+    return StreamingResponse(BytesIO(graph.pipe(format="png")), media_type="image/png")
+
+
 @app.get("/refresh")
 async def refresh(mode: MODE = "path") -> Export:
     await crawler.refresh()
-
     return crawler.export(mode)
