@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Literal
@@ -11,9 +12,25 @@ from .crawler import MODE, Export, crawler
 from .utils import repeat_every
 
 
+@repeat_every(
+    seconds=60 * 2,
+    wait_first=True,
+    raise_exceptions=True,
+)  # every two minutes
+async def refresh_map():
+    try:
+        logger.info("Refreshing map")
+        await crawler.refresh()
+        logger.info("Refreshing map ok")
+    except Exception as ex:
+        logger.warning(f"Map refresh exc: {ex!r}")
+
+
 @asynccontextmanager
 async def init(ap: FastAPI):
+    logger.info("Staring init")
     async with crawler:
+        refresh_task = asyncio.create_task(refresh_map())
         try:
             yield
         except Exception as ex:
@@ -22,13 +39,6 @@ async def init(ap: FastAPI):
 
 
 app = FastAPI(lifespan=init)
-
-
-@app.on_event("startup")
-@repeat_every(seconds=60 * 2)  # every two minutes
-async def refresh_map():
-    logger.info("Refreshing map")
-    await crawler.refresh()
 
 
 base_resp = """
