@@ -144,14 +144,25 @@ class Context:
         self.peers_connections[key] = remote_peers
         # trees_list = self.trees_connections.setdefault(key, [])
 
-        remote_trees.remove(key)  # WTF: remove self tree
+        if key in remote_trees:
+            remote_trees.remove(key)  # WTF: remove self tree
 
         # trees_list.extend(remote_trees.keys)
 
-        peer_info = (await self.ygg.remote_get_info(key))[key].model_dump()
-        peer_info["key"] = key
+        try:
+            peer_info = (await self.ygg.remote_get_info(key))[key].model_dump()
+            peer_info["key"] = key
+            peer_data = PeerData.model_validate(peer_info)
+        except RequestException as ex:
+            peer_data = PeerData(
+                key=key,
+                name=UNK,
+                buildname=UNK,
+                buildversion=UNK,
+                buildarch=UNK,
+                buildplatform=UNK,
+            )
 
-        peer_data = PeerData.model_validate(peer_info)
         self.peers[peer_data.key] = peer_data
 
         for possible_key in remote_peers + remote_trees:

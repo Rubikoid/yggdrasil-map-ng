@@ -70,8 +70,9 @@ class GetPeersResponse(BaseResponse):
     class DeadPeer(BasePeer):
         key: EmptyKey
 
-        last_error: str
-        last_error_time: datetime.datetime
+        # TODO: do something with it
+        last_error: str | None = None
+        last_error_time: datetime.datetime | None = None
 
     peers: list[AlivePeer | DeadPeer]
 
