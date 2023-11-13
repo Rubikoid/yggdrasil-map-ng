@@ -8,7 +8,7 @@ from typing import Annotated, AsyncContextManager, Generic, Literal, NewType, Ty
 import pydantic_core
 from annotated_types import Len
 from loguru import logger
-from pydantic import BaseModel, Field, RootModel, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, RootModel, TypeAdapter
 
 from .config import settings
 
@@ -109,6 +109,10 @@ class GetNodeInfoResponse(BaseResponse):
     buildversion: str = ""
 
     name: str = ""
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
 
 
 class RemoteGetPeers(BaseResponse):

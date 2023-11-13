@@ -28,6 +28,8 @@ class PeerData(BaseModel):
     buildarch: str = UNK
     buildplatform: str = UNK
 
+    cluster: str | None = None
+
 
 class EnrichedPeerData(PeerData):
     addr: Addr
@@ -76,6 +78,8 @@ class Export(BaseModel):
 
     nodes: list[Node] = []
     edges: list[Edge] = []
+
+    clusters: set[str] = set()
 
 
 class Crawler(AsyncContextManager):
@@ -229,6 +233,9 @@ class Crawler(AsyncContextManager):
                             ret.edges.append(edge)
 
         for node in nodes.values():
+            if node.cluster:
+                ret.clusters.add(node.cluster)
+
             ret.nodes.append(
                 Export.Node(
                     id=get_id(node.key),

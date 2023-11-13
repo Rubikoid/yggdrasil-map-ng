@@ -94,8 +94,6 @@ base_resp = """
 @app.get("/")
 async def index(mode: MODE = "path") -> HTMLResponse:
     data = crawler.export(mode).model_dump_json(by_alias=True)
-    logger.trace(data)
-
     resp = base_resp.replace("{data}", data)
 
     return HTMLResponse(content=resp)
@@ -139,6 +137,11 @@ async def get_graphviz(mode: MODE = "peers"):
         graph.edge(str(edge.to), str(edge.from_), dir=dir, color=color)
 
     return StreamingResponse(BytesIO(graph.pipe(format="png")), media_type="image/png")
+
+
+@app.get("/state")
+async def state(mode: MODE = "path") -> Export:
+    return crawler.export(mode)
 
 
 @app.get("/refresh")
