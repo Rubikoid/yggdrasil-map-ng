@@ -103,10 +103,10 @@ class LookupsResponse(BaseResponse):
 
 
 class GetNodeInfoResponse(BaseResponse):
-    buildarch: str
-    buildname: str
-    buildplatform: str
-    buildversion: str
+    buildarch: str = ""
+    buildname: str = ""
+    buildplatform: str = ""
+    buildversion: str = ""
 
     name: str = ""
 
@@ -176,8 +176,8 @@ class BaseYggdrasil(AsyncContextManager):
 
     async def __aexit__(
         self,
-        __exc_type: type[YggdrasilError] | None,
-        __exc_value: YggdrasilError | None,
+        __exc_type: type[BaseException] | None,
+        __exc_value: BaseException | None,
         __traceback: TracebackType | None,
     ) -> bool | None:
         self._connected = False

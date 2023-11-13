@@ -1,11 +1,11 @@
-import asyncio
-from .crawler import crawl
+# import asyncio
+# from .crawler import crawl
 
 
-async def main():
-    res = await crawl("path")
-    print(res)
+# async def main():
+#     res = await crawl("path")
+#     print(res)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# if __name__ == "__main__":
+#     asyncio.run(main())
