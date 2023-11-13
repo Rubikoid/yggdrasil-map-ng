@@ -128,12 +128,13 @@ async def get_graphviz(mode: MODE = "peers"):
     for edge in peers.edges:
         dir = None
         color = None
-        match edge.arrows:
-            case None:
-                dir = "forward"
-                color = "red"
-            case "to;forward":
-                dir = "both"
+        if mode == "peers":
+            match edge.arrows:
+                case None:
+                    dir = "forward"
+                    color = "red"
+                case "to;forward":
+                    dir = "both"
 
         graph.edge(str(edge.to), str(edge.from_), dir=dir, color=color)
 
