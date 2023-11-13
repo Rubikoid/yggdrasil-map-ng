@@ -109,7 +109,7 @@ async def get_graphviz(mode: MODE = "peers"):
 
     peers = crawler.export(mode)  # json.loads(await crawl("peers"))
 
-    clusters = {cluster: Digraph(f"cluster_{cluster}") for cluster in peers.clusters}
+    clusters = {cluster: Digraph(f"cluster_{cluster}", comment=cluster) for cluster in peers.clusters}
     logger.info(f"{peers.clusters = }")
     
     for node in peers.nodes:
@@ -134,6 +134,7 @@ async def get_graphviz(mode: MODE = "peers"):
         graph.node(str(node.id), f"{node.buildversion} {node.label}")
 
     for cluster in clusters.values():
+        cluster.attr(label=cluster.comment)
         base_graph.subgraph(cluster)
 
     for edge in peers.edges:
