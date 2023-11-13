@@ -68,6 +68,7 @@ class Export(BaseModel):
         label: str
         buildplatform: str = UNK
         buildversion: str = UNK
+        cluster: str | None = None
 
     class Edge(BaseModel):
         from_: NodeId = Field(serialization_alias="from")
@@ -233,8 +234,8 @@ class Crawler(AsyncContextManager):
                             ret.edges.append(edge)
 
         for node in nodes.values():
-            if node.cluster:
-                ret.clusters.add(node.cluster)
+            cluster = node.cluster or node.name.rsplit(".", maxsplit=1)[0]
+            ret.clusters.add(cluster)
 
             ret.nodes.append(
                 Export.Node(
@@ -242,6 +243,7 @@ class Crawler(AsyncContextManager):
                     label=node.label,
                     buildplatform=node.buildplatform,
                     buildversion=node.buildversion,
+                    cluster=cluster,
                 )
             )
 

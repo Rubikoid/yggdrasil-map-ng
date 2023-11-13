@@ -101,12 +101,17 @@ async def index(mode: MODE = "path") -> HTMLResponse:
 
 @app.get("/graphviz")
 async def get_graphviz(mode: MODE = "peers"):
-    graph = Digraph(
+    base_graph = Digraph(
         format="png",
     )
-    peers = crawler.export(mode)  # json.loads(await crawl("peers"))
-    graph.attr("edge", dir="both")
+    base_graph.attr(compound="true")
+    base_graph.attr("edge", dir="both")
 
+    peers = crawler.export(mode)  # json.loads(await crawl("peers"))
+
+    clusters = {cluster: Digraph(f"cluster_{cluster}") for cluster in peers.clusters}
+    logger.info(f"{peers.clusters = }")
+    
     for node in peers.nodes:
         node_shape = "ellipse"
         node_color = "black"
@@ -120,8 +125,16 @@ async def get_graphviz(mode: MODE = "peers"):
         if bp == "linux":
             node_shape = "cylinder"
             node_color = "blue"
+
+        graph = base_graph
+        if node.cluster:
+            graph = clusters[node.cluster]
+
         graph.attr("node", shape=node_shape, color=node_color)
         graph.node(str(node.id), f"{node.buildversion} {node.label}")
+
+    for cluster in clusters.values():
+        base_graph.subgraph(cluster)
 
     for edge in peers.edges:
         dir = None
@@ -134,9 +147,12 @@ async def get_graphviz(mode: MODE = "peers"):
                 case "to;forward":
                     dir = "both"
 
-        graph.edge(str(edge.to), str(edge.from_), dir=dir, color=color)
+        base_graph.edge(str(edge.to), str(edge.from_), dir=dir, color=color)
 
-    return StreamingResponse(BytesIO(graph.pipe(format="png")), media_type="image/png")
+    return StreamingResponse(
+        BytesIO(base_graph.pipe(format="png")),
+        media_type="image/png",
+    )
 
 
 @app.get("/state")
