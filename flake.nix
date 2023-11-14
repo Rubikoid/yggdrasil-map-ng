@@ -16,7 +16,7 @@
         "x86_64-linux"
         # "x86_64-darwin"
         # "aarch64-darwin"
-        "aarch64-linux"
+        # "aarch64-linux"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
     in
