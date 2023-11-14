@@ -97,7 +97,7 @@
               }
             );
           };
-        default = self.nixosModules.ygg-map;
+        default = self.nixosModules.${system}.ygg-map;
       });
 
       packages = forAllSystems (system:
