@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from graphviz import Digraph
 from loguru import logger
+import uvicorn
 
 from .crawler import MODE, Export, crawler
 from .utils import repeat_every
@@ -111,7 +112,7 @@ async def get_graphviz(mode: MODE = "peers"):
 
     clusters = {cluster: Digraph(f"cluster_{cluster}", comment=cluster) for cluster in peers.clusters}
     logger.info(f"{peers.clusters = }")
-    
+
     for node in peers.nodes:
         node_shape = "ellipse"
         node_color = "black"
@@ -165,3 +166,8 @@ async def state(mode: MODE = "path") -> Export:
 async def refresh(mode: MODE = "path") -> Export:
     await crawler.refresh()
     return crawler.export(mode)
+
+
+def start():
+    """Launched with `poetry run start` at root level"""
+    uvicorn.run("my_package.main:app", host="0.0.0.0", port=8000, reload=True)
