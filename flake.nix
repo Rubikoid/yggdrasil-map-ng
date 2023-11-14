@@ -27,6 +27,7 @@
           ygg-map = { config, lib, pkgs, ... }:
             let
               cfg = config.services.ygg-map;
+              package = cfg.package;
               inherit (lib) mkIf mkOption mkEnableOption mdDoc;
             in
             {
@@ -65,7 +66,7 @@
               };
               config = mkIf cfg.enable (
                 let
-
+                  
                 in
                 {
                   networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.http.port ];
