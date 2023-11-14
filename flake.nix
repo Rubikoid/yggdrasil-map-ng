@@ -21,7 +21,7 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
     in
     {
-      nixosModules = {
+      nixosModules = forAllSystems (system: {
         ygg-map = { config, lib, pkgs, ... }:
           let
             cfg = config.services.ygg-map;
@@ -34,7 +34,7 @@
 
               package = mkOption {
                 type = types.package;
-                default = pkgs.ygg-map;
+                default = self.packages.${system}.ygg-map;
                 defaultText = literalExpression "pkgs.ygg-map";
                 description = mdDoc "Yggdrasil map package to use.";
               };
@@ -98,7 +98,7 @@
             );
           };
         default = self.nixosModules.ygg-map;
-      };
+      });
 
       packages = forAllSystems (system:
         let
