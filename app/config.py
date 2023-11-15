@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 10200
 
+    refresh_seconds: int = 60 * 2
+
     socket: FilePath | str | None = None
 
     @property
@@ -31,3 +33,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if platform.system() == "Windows":
+    from graphviz.backend import dot_command
+
+    dot_command.DOT_BINARY = Path(r"C:\Program Files\Graphviz\bin\dot.exe")

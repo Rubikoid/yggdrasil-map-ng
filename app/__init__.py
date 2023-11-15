@@ -3,18 +3,19 @@ from contextlib import asynccontextmanager
 from io import BytesIO
 from typing import Literal
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, StreamingResponse
 from graphviz import Digraph
 from loguru import logger
-import uvicorn
 
+from .config import settings
 from .crawler import MODE, Export, crawler
 from .utils import repeat_every
 
 
 @repeat_every(
-    seconds=60 * 2,
+    seconds=settings.refresh_seconds,
     wait_first=True,
     raise_exceptions=True,
 )  # every two minutes
