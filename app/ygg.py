@@ -166,6 +166,7 @@ class BaseYggdrasil(AsyncContextManager):
         socket_path: Path | str = settings.ygg,
     ) -> None:
         self.socket_path = socket_path
+        logger.warning(f"Created BY: {socket_path = }")
 
     async def __aenter__(self):
         if isinstance(self.socket_path, Path):

@@ -54,11 +54,12 @@ in
       };
       networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.http.port ];
       systemd.services.ygg-map = {
+        enable = true;
         description = "Yggdrasil map";
-        after = [
-          "yggdrasil.service"
-        ];
+        wants = [ "yggdrasil.service" ];
+        wantedBy = [ "multi-user.target" ];
 
+        path = with pkgs; [ graphviz ];
         environment = {
           SOCKET = "/var/run/yggdrasil/yggdrasil.sock";
         };
@@ -66,7 +67,7 @@ in
           ExecStart = "${package.dependencyEnv}/bin/uvicorn app:app --host ${cfg.http.host} --port ${toString cfg.http.port} ${lib.strings.escapeShellArgs cfg.extraArgs}";
           Restart = "on-failure";
           KillSignal = "SIGINT";
-          # User = "root";
+          User = "root";
           # DynamicUser = "yes";
         };
       };

@@ -48,10 +48,15 @@
       #     pkgs = import nixpkgs { inherit system; };
       #     inherit poetry2nix;
       #   });
+
       packages = forAllSystems (system: pkgs: {
         default = self.packages.${system}.${projectName};
         ${projectName} = pkgs.poetry2nix.mkPoetryApplication {
-          projectDir = ./.;
+          projectDir = self;
+          meta.rev = self.dirtyRev or self.rev;
+          overrides = pkgs.poetry2nix.overrides.withDefaults (final: prev: {
+            ruff = prev.ruff.override { preferWheel = true; };
+          });
         };
       });
 
