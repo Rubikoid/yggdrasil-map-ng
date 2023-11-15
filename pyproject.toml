@@ -3,8 +3,8 @@ name = "ygg-map"
 version = "0.0.1"
 description = "Map for yggdrasil"
 authors = ["Rubikoid <rubikoid@rubikoid.ru>"]
-readme = "README.md"
-packages = [{include = "ygg_map"}]
+# readme = "README.md"
+packages = [{ include = "app" }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -25,4 +25,5 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-start = "app:start"
+# poetry = "ygg-map:start"
+poetry = "poetry.console.application:main"

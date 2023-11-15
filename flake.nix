@@ -10,141 +10,99 @@
     };
   };
 
-  outputs = { self, nixpkgs, poetry2nix }:
+  outputs =
+    { self
+    , nixpkgs
+    , poetry2nix
+      #, flake-utils
+    }:
     let
-      systems = [
+      supportedSystems = [
         "x86_64-linux"
-        # "x86_64-darwin"
-        # "aarch64-darwin"
-        # "aarch64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
       ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
+      forSystems = systems: f:
+        nixpkgs.lib.genAttrs systems
+          (system: f system (import nixpkgs { inherit system; overlays = [ poetry2nix.overlays.default self.overlays.default ]; }));
+      forAllSystems = forSystems supportedSystems;
+      projectName = "ygg-map";
     in
     {
-      nixosModules = forAllSystems (system: {
-        ygg-map = { config, lib, pkgs, ... }:
-          let
-            cfg = config.services.ygg-map;
-            package = cfg.package;
-            inherit (lib) mkIf mkOption mkEnableOption mdDoc literalExpression types;
-          in
-          {
-            options.services.ygg-map = {
-              enable = mkEnableOption (mdDoc "the yggdrasil map service");
+      overlays = {
+        default = final: prev: {
+          ${projectName} = self.packages.${prev.stdenv.hostPlatform.system}.${projectName};
+        };
+      };
 
-              package = mkOption {
-                type = types.package;
-                default = self.packages.${system}.ygg-map;
-                defaultText = literalExpression "pkgs.ygg-map";
-                description = mdDoc "Yggdrasil map package to use.";
-              };
+      nixosModules = {
+        default = { pkgs, lib, config, ... }: {
+          imports = [ ./module.nix ];
+          nixpkgs.overlays = [ self.overlays.default ];
+        };
+      };
 
-              http = {
-                host = mkOption {
-                  type = types.str;
-                  default = "127.0.0.1";
-                  example = "::1";
-                  description = mdDoc "Only listen to incoming requests on specific IP/host.";
-                };
-
-                port = mkOption {
-                  default = 10200;
-                  type = types.port;
-                  description = mdDoc "The port on which to listen.";
-                };
-              };
-
-              openFirewall = mkOption {
-                default = false;
-                type = types.bool;
-                description = mdDoc "Whether to open the firewall for the specified port.";
-              };
-
-              extraArgs = mkOption {
-                type = types.listOf types.str;
-                default = [ ];
-                example = [ ];
-                description = mdDoc "Extra cmd for ";
-              };
-            };
-            config = mkIf cfg.enable (
-              let
-
-              in
-              {
-                services.yggdrasil.settings = {
-                  LogLookups = true;
-                };
-                networking.firewall.allowedTCPPorts = mkIf cfg.openFirewall [ cfg.http.port ];
-                systemd.services.ygg-map = {
-                  description = "Yggdrasil map";
-                  after = [
-                    "yggdrasil.service"
-                  ];
-
-                  environment = {
-                    SOCKET = "/var/run/yggdrasil/yggdrasil.sock";
-                    PYTHONPATH = package.pythonPath;
-                  };
-                  serviceConfig = {
-                    ExecStart = "${package.dependencyEnv}/bin/uvicorn app:app --host ${cfg.http.host} --port ${cfg.http.port} ${lib.strings.escapeShellArgs cfg.extraArgs}";
-                    Restart = "on-failure";
-                    KillSignal = "SIGINT";
-                    # User = "root";
-                    # DynamicUser = "yes";
-                  };
-                };
-              }
-            );
-          };
-        default = self.nixosModules.${system}.ygg-map;
+      # packages = forAllSystems (system:
+      #   import ./default.nix {
+      #     pkgs = import nixpkgs { inherit system; };
+      #     inherit poetry2nix;
+      #   });
+      packages = forAllSystems (system: pkgs: {
+        default = self.packages.${system}.${projectName};
+        ${projectName} = pkgs.poetry2nix.mkPoetryApplication {
+          projectDir = ./.;
+        };
       });
 
-      packages = forAllSystems (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication;
-        in
-        {
-          ygg-map = mkPoetryApplication {
-            projectDir = self;
-          };
-          default = self.packages.${system}.ygg-map;
-        });
+      devShells = forAllSystems (system: pkgs: {
+        default = pkgs.mkShell {
+          inputsFrom = [ self.packages.${system}.${projectName} ];
+          buildInputs = with pkgs; [ poetry ];
+        };
+      });
 
-      devShells = forAllSystems (system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        {
-          default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.ygg-map ];
-            packages = [ pkgs.poetry ];
-          };
-        });
+      nixosConfigurations.container = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          ({ pkgs, config, ... }: {
+            # Only allow this to boot as a container
+            imports = [ self.nixosModules.default ];
+
+            boot.isContainer = true;
+            networking.hostName = projectName;
+
+            # Allow nginx through the firewall
+            # networking.firewall.allowedTCPPorts = [ http.port ];
+
+            services.${projectName} = {
+              enable = true;
+              openFirewall = true;
+            };
+
+            system.stateVersion = "23.11";
+          })
+        ];
+      };
     };
+  # flake-utils.lib.eachDefaultSystem (system:
 
-  # import ./default.nix {
-  #   pkgs = import nixpkgs { inherit system; };
+  # let
+  #   pkgs = nixpkgs.legacyPackages.${system};
+  #   inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication;
+  # in
+  # {
+  #   packages = {
+  #     ygg-map = mkPoetryApplication { projectDir = self; };
+  #     default = self.packages.${system}.ygg-map;
+  #   };
+
+  #   devShells.default = pkgs.mkShell {
+  #     inputsFrom = [ self.packages.${system}.ygg-map ];
+  #     packages = [ pkgs.poetry ];
+  #   };
   # }
-
-  # forAllSystems (system:
-  #   let
-
-  #   in
-  #   {
-  #     packages = {
-  #       ygg-map = mkPoetryApplication {
-  #         projectDir = self;
-  #       };
-  #       default = self.packages.${system}.ygg-map;
-  #     };
-
-
-
-  #     devShells.default = pkgs.mkShell {
-  #       inputsFrom = [ self.packages.${system}.ygg-map ];
-  #       packages = [ pkgs.poetry ];
-  #     };
-  #   });
+  # );
+  # {
+  # };
 }
