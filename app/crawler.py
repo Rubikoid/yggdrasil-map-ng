@@ -51,7 +51,7 @@ class EnrichedPeerData(PeerData):
 
     @property
     def id(self) -> NodeId:
-        if self.key:
+        if self.key != "":
             return get_id(self.key)
         else:
             return NodeId(
@@ -232,7 +232,7 @@ class Crawler(AsyncContextManager):
                     e = nodes[tuple(node.parent)]
                     to = e.id
 
-                    ret.edges.append(Export.Edge(from_=get_id(node.key), to=to))
+                    ret.edges.append(Export.Edge(from_=node.id, to=to))
 
             case "peers":
                 for root_key, children in self.peers_connections.items():
