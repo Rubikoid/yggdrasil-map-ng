@@ -7,9 +7,6 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
-    host: str = "127.0.0.1"
-    port: int = 10200
-
     refresh_seconds: int = 60 * 2
 
     socket: FilePath | str | None = None
