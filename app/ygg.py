@@ -17,7 +17,7 @@ try:
 except ImportError:
     logger.warning(f"open_unix_connection unavailable (it's okay, if you on windows)")
 
-_Key = NewType("Key", str)
+_Key = NewType("Key", str)  # type: ignore
 Key = Annotated[_Key, Len(min_length=64, max_length=64)]
 EmptyKey = Annotated[_Key, Len(min_length=0, max_length=0)]
 Addr = NewType("Addr", str)
@@ -202,11 +202,24 @@ class BaseYggdrasil(AsyncContextManager):
 
         r, w = self._rw
 
-        w.write(req.model_dump_json().encode())
+        to_write = req.model_dump_json().encode()
+        w.write(to_write)
         await w.drain()
 
-        resp = await r.read(65535)
-        resp.decode()
+        # resp = bytearray()
+        # while not r.at_eof():
+        #     _resp = await r.read(65535)
+        #     resp += _resp
+
+        await r._wait_for_data("read_all")
+        resp = await r.read(len(r._buffer))
+
+        if b"lookups" in to_write:
+            while b"\n}\n" not in resp[-128:]:
+                await r._wait_for_data("read_all")
+                resp += await r.read(len(r._buffer))
+
+        # resp.decode()
         logger.trace(f"{req} -> {resp.decode()}")
 
         if not req.response_model:
@@ -217,7 +230,8 @@ class BaseYggdrasil(AsyncContextManager):
             if parsed.status == Response.Status.error:
                 raise RequestError(parsed)
         except pydantic_core.ValidationError as ex:
-            logger.info(f"Validation error: {req} -> {resp.decode()}")
+            k = 1024
+            logger.info(f"Validation error: {req} -> {resp.decode()[:k]} ... {resp.decode()[-k:]}")
             raise ValidationError(req) from ex
 
         logger.trace(f"{parsed}")
