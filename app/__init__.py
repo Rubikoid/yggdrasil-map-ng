@@ -171,6 +171,11 @@ async def refresh(mode: MODE = "path") -> Export:
     return crawler.export(mode)
 
 
+@app.get("/info")
+async def info() -> PlainTextResponse:
+    return PlainTextResponse(crawler.crawling_status())
+
+
 def start():
     """Launched with `poetry run start` at root level"""
     uvicorn.run("my_package.main:app", host="0.0.0.0", port=8000, reload=True)
