@@ -1,11 +1,12 @@
 import asyncio
 from contextlib import asynccontextmanager
 from io import BytesIO
+from pathlib import Path
 from typing import Literal
 
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse
 from graphviz import Digraph
 from loguru import logger
 
@@ -16,7 +17,7 @@ from .utils import repeat_every
 
 @repeat_every(
     seconds=settings.refresh_seconds,
-    wait_first=True,
+    wait_first=False,
     raise_exceptions=True,
 )  # every two minutes
 async def refresh_map():
@@ -32,6 +33,7 @@ async def refresh_map():
 async def init(ap: FastAPI):
     logger.info("Staring init")
     async with crawler:
+        logger.info(f"Starting refresh task every {settings.refresh_seconds} seconds")
         refresh_task = asyncio.create_task(refresh_map())
         try:
             yield
