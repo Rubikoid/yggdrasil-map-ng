@@ -14,6 +14,10 @@ class Settings(BaseSettings):
 
     socket: FilePath | str | None = None
 
+    workers: int = 6
+
+    reload_bad: bool = True
+
     @property
     def ygg(self) -> Path | str:
         if self.socket:
