@@ -242,7 +242,7 @@ class BaseYggdrasil(AsyncContextManager):
             return await self.__do_request(req)
         # except RequestError as ex:
         #     pass
-        except BrokenPipeError as ex:
+        except (BrokenPipeError, ConnectionResetError) as ex:
             logger.info(f"Dead socket error: {ex!r}")
             self._connected = False
 
