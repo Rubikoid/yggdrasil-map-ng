@@ -5,7 +5,8 @@ from typing import AsyncContextManager, Literal, NewType, Self, TypeAlias
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from .ygg import Addr, EmptyKey, Key, RequestError, Yggdrasil, GetSelfResponse
+from .config import settings
+from .ygg import Addr, EmptyKey, GetSelfResponse, Key, RequestError, Yggdrasil
 
 UNK = "unknown"
 
@@ -107,13 +108,34 @@ class Crawler(AsyncContextManager):
 
     refresh_lock: asyncio.Lock
 
+    key_locks: dict[Key, bool]
+    keys_queue: asyncio.Queue[Key]
+
+    workers: list
+
     def __init__(self) -> None:
         self.ygg = Yggdrasil()
         self.refresh_lock = asyncio.Lock()
 
     async def init(self) -> None:
         self.self_info = await self.ygg.get_self()
-        await self.refresh()
+        self.keys_queue = asyncio.Queue()
+
+        self.workers = []
+        for _ in range(settings.workers):
+            ygg = Yggdrasil()
+            worker = asyncio.create_task(self.worker(ygg))
+            self.workers.append(worker)
+
+        logger.info(f"Created {len(self.workers)} workers")
+
+    def reset(self):
+        assert self.refresh_lock.locked()
+
+        self.peers = {}
+        self.enriched_peers = {}
+        self.peers_connections = {}
+        self.key_locks = {}
 
     async def refresh(self):
         if self.refresh_lock.locked():
@@ -121,55 +143,108 @@ class Crawler(AsyncContextManager):
             return
 
         async with self.refresh_lock:
-            self.peers = {}
-            self.enriched_peers = {}
+            # reset arrs
+            self.reset()
 
-            self.peers_connections = {}
+            # find self info
+            peer_data = await self.remote_get_info(self.self_info.key, ygg=self.ygg)
+            # FIXME: temporary?? solution b/c (only windows??) ygg client refuses to do remote_* with self key
+            peer_data = peer_data or PeerData(
+                key=self.self_info.key,
+                name="idk, root",
+                buildname=self.self_info.build_name,
+                buildversion=self.self_info.build_version,
+                buildarch=UNK,
+                buildplatform=UNK,
+            )
+            self.peers[peer_data.key] = peer_data
+            logger.info(f"Got self: {peer_data}")
 
-            try:
-                peer_info = (await self.ygg.remote_get_info(self.self_info.key))[self.self_info.key].model_dump()
-                peer_info["key"] = self.self_info.key
-                peer_data = PeerData.model_validate(peer_info)
-                self.peers[peer_data.key] = peer_data
-            except Exception as ex:
-                # FIXME: temporary?? solution b/c (only windows??) ygg client refuses to do remote_* with self key
-                self.peers[self.self_info.key] = PeerData(
-                    key=self.self_info.key,
-                    name="idk, root",
-                    buildname=self.self_info.build_name,
-                    buildversion=self.self_info.build_version,
-                    buildarch=UNK,
-                    buildplatform=UNK,
-                )
-
+            # get peers, which i connected to
             root_peers = await self.ygg.get_peers()
             for peer in root_peers.peers:
                 if not peer.up:
                     continue
 
-                await self.fill(peer.key)
+                # for every peer - add to queue.
+                await self.put_key_to_queue(peer.key)
 
+            logger.info(f"{self.keys_queue.qsize() = }")
+            await self.keys_queue.join()
+            logger.info(f"Done waiting {self.keys_queue.qsize() = }")
+
+            # get all lookups...
             lookups = await self.ygg.lookups()
             for lookup in lookups.infos:
                 node_info = self.peers.get(lookup.key, None)
                 if not node_info:
-                    logger.warning(f"{lookup} not found in nodes cache, reloading")
-                    await self.fill(lookup.key)
+                    if settings.reload_bad:
+                        logger.warning(f"{lookup} not found in nodes cache, reloading")
+                        await self.fill_for_key(lookup.key, self.ygg)
+
                     node_info = self.peers.get(lookup.key, PeerData(key=lookup.key))
 
                 node = EnrichedPeerData.model_validate(lookup.model_dump() | node_info.model_dump())
                 self.enriched_peers[node.key] = node
 
-    async def fill(self, key: Key):
+    async def put_key_to_queue(self, key: Key) -> None:
+        # don't put self to queue
         if key == self.self_info.key:
             return
 
+        # if we already got everything about this key
         if key in self.peers:
             return
 
+        # if we now resolving this key
+        if key in self.key_locks:
+            return
+
+        await self.keys_queue.put(key)
+
+    def crawling_status(self) -> None:
+        def _format(self: asyncio.Queue):
+            result = f"maxsize={self._maxsize!r}"
+            if getattr(self, "_queue", None):
+                result += f" _queue={len(self._queue)!r}"
+            if self._getters:
+                result += f" _getters[{len(self._getters)}]"
+            if self._putters:
+                result += f" _putters[{len(self._putters)}]"
+            if self._unfinished_tasks:
+                result += f" tasks={self._unfinished_tasks}"
+            return result
+
+        logger.info(f"Now in db: {len(self.peers)} peers, ")
+        logger.info(f"Waiting for: {self.keys_queue.qsize()!r} in queue (and {_format(self.keys_queue)})")
+        for key in self.key_locks:
+            if key not in self.peers:
+                logger.info(f"and for {key}")
+
+    async def worker(self, ygg: Yggdrasil) -> None:
+        async with ygg:
+            while True:
+                key = await self.keys_queue.get()
+
+                # logger.info(f"Got {key}")
+
+                # check and set lock
+                if self.key_locks.get(key, False):
+                    self.keys_queue.task_done()
+                    continue
+                self.key_locks[key] = True
+
+                await self.fill_for_key(key, ygg)
+
+                self.keys_queue.task_done()
+
+                # logger.info(f"{key} done")
+                # self.waiting_for()
+
+    async def fill_for_key(self, key: Key, ygg: Yggdrasil) -> None:
         try:
-            _, raw_remote_peers = (await self.ygg.remote_get_peers(key)).popitem()
-            _, raw_remote_trees = (await self.ygg.remote_get_tree(key)).popitem()
+            _, raw_remote_peers = (await ygg.remote_get_peers(key)).popitem()
+            _, raw_remote_trees = (await ygg.remote_get_tree(key)).popitem()
             remote_peers = raw_remote_peers.keys
             remote_trees = raw_remote_trees.keys
         except RequestError as ex:
@@ -179,6 +254,7 @@ class Crawler(AsyncContextManager):
             remote_trees = []
 
         self.peers_connections[key] = remote_peers
+
         # trees_list = self.trees_connections.setdefault(key, [])
 
         if key in remote_trees:
@@ -186,19 +262,15 @@ class Crawler(AsyncContextManager):
 
         # trees_list.extend(remote_trees.keys)
 
-        try:
-            peer_info = (await self.ygg.remote_get_info(key))[key].model_dump()
-            peer_info["key"] = key
-            peer_data = PeerData.model_validate(peer_info)
-        except RequestError as ex:
-            logger.warning(f"{key} -> {ex!r}")
-
-            peer_data = PeerData(key=key)
-
+        peer_data = (await self.remote_get_info(key, ygg)) or PeerData(key=key)
         self.peers[peer_data.key] = peer_data
 
         for possible_key in remote_peers + remote_trees:
-            await self.fill(possible_key)
+            if ygg == self.ygg:
+                logger.info(f"WTF new leaf from {key = } going to recursion")
+                await self.fill_for_key(key, ygg=ygg)
+            else:
+                await self.put_key_to_queue(possible_key)
 
     def export(self, mode: MODE) -> Export:
         ret = Export()
@@ -268,6 +340,20 @@ class Crawler(AsyncContextManager):
             )
 
         return ret
+
+    async def remote_get_info(self, key: Key, ygg: Yggdrasil) -> PeerData | None:
+        try:
+            src_model = (await ygg.remote_get_info(key))[key]
+        except RequestError as ex:
+            logger.warning(f"{key = } -> {ex!r}")
+            return None
+        except Exception as ex:
+            logger.error(f"{key = } -> {ex!r}")
+            raise
+        else:
+            dumped_model = src_model.model_dump()
+            dumped_model["key"] = key
+            return PeerData.model_validate(dumped_model)
 
     async def __aenter__(self):
         self.ygg = await self.ygg.__aenter__()
