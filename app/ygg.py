@@ -169,14 +169,7 @@ class BaseYggdrasil(AsyncContextManager):
         logger.warning(f"Created BY: {socket_path = }")
 
     async def __aenter__(self):
-        if isinstance(self.socket_path, Path):
-            self._rw = await open_unix_connection(self.socket_path)
-        else:
-            host, port = self.socket_path.split(":")
-            self._rw = await open_connection(host=host, port=int(port))
-        logger.info(f"Connected to {self.socket_path}")
-        self._connected = True
-
+        await self.connect()
         return self
 
     async def __aexit__(
@@ -192,7 +185,18 @@ class BaseYggdrasil(AsyncContextManager):
 
         return None
 
-    async def do_request(self, req: BaseRequest[T]) -> SuccessResponse[T]:
+    async def connect(self) -> None:
+        limit = 2**64
+
+        if isinstance(self.socket_path, Path):
+            self._rw = await open_unix_connection(self.socket_path, limit=limit)
+        else:
+            host, port = self.socket_path.split(":")
+            self._rw = await open_connection(host=host, port=int(port), limit=limit)
+        logger.info(f"Connected to {self.socket_path}")
+        self._connected = True
+
+    async def __do_request(self, req: BaseRequest[T]) -> SuccessResponse[T]:
         if not self._connected:
             raise Exception("Not connected")
 
@@ -218,6 +222,19 @@ class BaseYggdrasil(AsyncContextManager):
 
         logger.trace(f"{parsed}")
         return parsed
+
+    async def do_request(self, req: BaseRequest[T], retry: int = 0) -> SuccessResponse[T]:
+        try:
+            return await self.__do_request(req)
+        # except RequestError as ex:
+        #     pass
+        except BrokenPipeError as ex:
+            logger.info(f"Dead socket error: {ex!r}")
+            self._connected = False
+
+            # reconnect
+            await self.connect()
+            return await self.__do_request(req)
 
 
 class Yggdrasil(BaseYggdrasil):
