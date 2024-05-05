@@ -203,16 +203,16 @@ class Crawler(AsyncContextManager):
         await self.keys_queue.put(key)
 
     def crawling_status(self) -> None:
-        def _format(self: asyncio.Queue):
-            result = f"maxsize={self._maxsize!r}"
+        def _format(self: asyncio.Queue):  # WTF: DITRY
+            result = f"maxsize={self._maxsize!r}"  # type: ignore
             if getattr(self, "_queue", None):
-                result += f" _queue={len(self._queue)!r}"
-            if self._getters:
-                result += f" _getters[{len(self._getters)}]"
-            if self._putters:
-                result += f" _putters[{len(self._putters)}]"
-            if self._unfinished_tasks:
-                result += f" tasks={self._unfinished_tasks}"
+                result += f" _queue={len(self._queue)!r}"  # type: ignore
+            if self._getters:  # type: ignore
+                result += f" _getters[{len(self._getters)}]"  # type: ignore
+            if self._putters:  # type: ignore
+                result += f" _putters[{len(self._putters)}]"  # type: ignore
+            if self._unfinished_tasks:  # type: ignore
+                result += f" tasks={self._unfinished_tasks}"  # type: ignore
             return result
 
         logger.info(f"Now in db: {len(self.peers)} peers, ")
