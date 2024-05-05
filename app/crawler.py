@@ -268,7 +268,7 @@ class Crawler(AsyncContextManager):
         for possible_key in remote_peers + remote_trees:
             if ygg == self.ygg:
                 logger.info(f"WTF new leaf from {key = } going to recursion")
-                await self.fill_for_key(key, ygg=ygg)
+                await self.fill_for_key(possible_key, ygg=ygg)
             else:
                 await self.put_key_to_queue(possible_key)
 
